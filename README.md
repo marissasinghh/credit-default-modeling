@@ -35,7 +35,7 @@ The model must output probabilities that a loan will not be paid for each applic
 The dataset is based on the [Home Credit Default Risk](https://www.kaggle.com/competitions/home-credit-default-risk/) Kaggle competition. This project uses the primary application files only:
 
 - **`application_train_aai.csv`**: Training data with labels.
-- **`application_test_aai.csv`**: Test data (no labels); used for final predictions.
+- **`application_test_aai.csv`**: Test applications. The file includes a `TARGET` column, which later cells overwrite with predicted class-1 probabilities. No test ROC AUC is computed.
 
 ### Dataset characteristics
 
@@ -67,23 +67,24 @@ Data is downloaded automatically when running the notebook’s data-loading sect
 
 ### Model architecture
 
-The final model is a **LightGBM-based pipeline**:
+The selected model is a tuned **LightGBM classifier** (`lgbm_random`). It has no feature-selection step and no `class_weight`.
 
-- **VarianceThreshold** (threshold=0.01): drop low-variance features.
-- **SelectKBest** (f_classif, k=75): keep top 75 features.
-- **LGBMClassifier**: n_estimators=200, max_depth=12, learning_rate=0.05, num_leaves=31, subsample=0.8, colsample_bytree=0.8, min_child_samples=20, class_weight='balanced'.
+- **LGBMClassifier**: n_estimators=200, max_depth=5, learning_rate=0.1, num_leaves=15, subsample=0.6, colsample_bytree=0.8, min_child_samples=20, random_state=42, n_jobs=-1, verbose=-1.
 
 ### Model selection
 
-Three approaches were compared:
+Six models were compared:
 
-| Approach              | Validation ROC AUC | Train–val gap |
-|-----------------------|--------------------|---------------|
-| Random Forest (tuned) | 0.7302             | 0.0768        |
-| LightGBM (basic)      | 0.7531             | 0.0425        |
-| LightGBM pipeline     | 0.7493             | 0.0417        |
+| Approach | Validation ROC AUC | Train–val gap |
+| --- | ---: | ---: |
+| Logistic regression (`C=0.0001`) | 0.6772 | 0.0026 |
+| Random forest (default) | 0.7064 | 0.2936 |
+| Random forest (tuned) | 0.7302 | 0.0768 |
+| LightGBM (`lgbm_random`) | 0.7531 | 0.0425 |
+| Logistic pipeline | 0.7470 | 0.0033 |
+| LightGBM pipeline | 0.7493 | 0.0417 |
 
-The LightGBM pipeline was chosen for its balance of performance, generalization, and efficiency. Hyperparameters were tuned with `RandomizedSearchCV` (3-fold CV, scoring='roc_auc', 15 iterations, random_state=42).
+`lgbm_random` has the highest validation ROC AUC (0.7531). That search used `RandomizedSearchCV` (3-fold CV, `scoring='roc_auc'`, 10 iterations, `random_state=42`). The LightGBM pipeline search used 15 iterations and reached 0.7493.
 
 ---
 
@@ -95,19 +96,22 @@ ROC AUC is used because it is threshold-independent, suitable for imbalanced dat
 
 ### Model performance
 
-| Model              | Train ROC AUC | Validation ROC AUC | Train–val gap |
-|--------------------|---------------|--------------------|---------------|
-| Random Forest      | 0.8070        | 0.7302             | 0.0768        |
-| LightGBM (basic)   | 0.7956        | 0.7531             | 0.0425        |
-| **LightGBM pipeline** | **0.7910**  | **0.7493**         | **0.0417**    |
+| Model | Train ROC AUC | Validation ROC AUC | Train–val gap |
+| --- | ---: | ---: | ---: |
+| Logistic regression (`C=0.0001`) | 0.6798 | 0.6772 | 0.0026 |
+| Random forest (default) | 1.0000 | 0.7064 | 0.2936 |
+| Random forest (tuned) | 0.8070 | 0.7302 | 0.0768 |
+| **LightGBM (`lgbm_random`)** | **0.7956** | **0.7531** | **0.0425** |
+| Logistic pipeline | 0.7503 | 0.7470 | 0.0033 |
+| LightGBM pipeline | 0.7910 | 0.7493 | 0.0417 |
 
 ---
 
 ## Results
 
-- **Validation ROC AUC**: 0.7493 for the selected LightGBM pipeline.
-- **Generalization**: Train–validation gap of 0.0417 indicates limited overfitting.
-- The pipeline (feature selection + LightGBM) is used as the final model for predictions.
+- **Validation ROC AUC**: 0.7531 for the selected LightGBM model (`lgbm_random`).
+- **Generalization**: Train–validation gap of 0.0425.
+- `lgbm_random` writes the test-file probabilities. The feature-selection pipeline is not saved.
 
 ---
 
@@ -201,18 +205,9 @@ isort --profile=black . && black --line-length 88 .
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Feature Selection Pipeline                      │
-│  ┌──────────────┐  ┌──────────────┐                         │
-│  │ Variance     │  │ SelectKBest  │                         │
-│  │ Threshold    │→ │ (k=75)       │                         │
-│  │ (0.01)       │  │              │                         │
-│  └──────────────┘  └──────────────┘                         │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────────┐
 │              Model Training                                  │
-│  LightGBM Classifier (RandomizedSearchCV, roc_auc)           │
+│  Selected: LightGBM lgbm_random                              │
+│  RandomizedSearchCV, n_iter=10, roc_auc, no class_weight     │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
